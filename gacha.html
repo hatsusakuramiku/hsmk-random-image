@@ -111,17 +111,21 @@ function run() {
   note.innerHTML = "请稍等，图片正在加载中~~~";
   blocker = true;
   img.title = "加载中…";
-  var request = new XMLHttpRequest();
-  request.open("get", "/random?type=json");
-  request.send(null);
-  request.onload = function () {
-    if (request.status == 200) {
-      var data = JSON.parse(request.responseText);
-      img.src = data['pic'][0];
-    }else{
-      alert("调用出错啦！");
-    }
-  }
+  fetch('/random?type=json')
+    .then(response => {
+      if (response.ok) {
+        return response.json();
+      } else {
+        alert("调用出错啦！");
+        throw new Error('Network response was not ok');
+      }
+    })
+  .then(data => {
+    img.src = data['pic'][0];
+  })
+  .catch(error => {
+    console.error('Fetch error:', error);
+  });
 }
 function next() {
   note.innerHTML = "↓ 点击图片就能下载哦(o゜▽゜)o☆";
