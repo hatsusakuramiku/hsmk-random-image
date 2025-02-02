@@ -3,46 +3,48 @@ from urllib.parse import urlparse, parse_qs
 from ujson import dumps
 import socket
 
+
 class handler(BaseHTTPRequestHandler):
     def handle_request(self, content_type, opt):
+        print(f"content_type: {content_type}, opt: {opt}")  # 添加调试信息
         self.send_response(200)
-        self.send_header('Content-Type', content_type)
+        self.send_header("Content-Type", content_type)
         self.end_headers()
-        self.wfile.write(opt.encode(encoding='UTF-8'))
+        self.wfile.write(opt.encode(encoding="UTF-8"))
         return
-    
+
     def action(self):
-        url = 'https://www.example.com' + self.path
+        url = "https://www.example.com" + self.path
         ipt = parse_qs(urlparse(url).query)
-        expect = ipt.get('expect', [None])[0]
+        expect = ipt.get("expect", [None])[0]
         if expect == "ip":
-            self.handle_request('text/plain', self.headers['x-real-ip'])
+            self.handle_request("text/plain", self.headers["x-real-ip"])
             return
         elif expect == "ua":
-            self.handle_request('text/plain', self.headers['user-agent'])
+            self.handle_request("text/plain", self.headers["user-agent"])
             return
         elif expect == "time":
-            self.handle_request('text/plain', self.date_time_string())
+            self.handle_request("text/plain", self.date_time_string())
             return
         opt = {
-            'status'  : 200,
-            'time'    : self.date_time_string(),
-            'ip'      : self.headers['x-real-ip'],
-            'path'    : self.path,
-            'method'  : self.command,
-            'http_ver': self.request_version,
-            'server'  : {
-                'host': self.client_address[0],
-                'port': self.client_address[1],
-                'ver' : self.version_string()
+            "status": 200,
+            "time": self.date_time_string(),
+            "ip": self.headers["x-real-ip"],
+            "path": self.path,
+            "method": self.command,
+            "http_ver": self.request_version,
+            "server": {
+                "host": self.client_address[0],
+                "port": self.client_address[1],
+                "ver": self.version_string(),
             },
-            'headers' : {}
+            "headers": {},
         }
-        opt['headers'] = dict(sorted(self.headers.items(), key=lambda v:v[0]))
-        opt['headers'].pop("forwarded", None)
-        opt['headers'].pop("x-vercel-proxy-signature", None)
-        opt['headers'].pop("x-vercel-proxy-signature-ts", None)
-        self.handle_request('application/json', dumps(opt))
+        opt["headers"] = dict(sorted(self.headers.items(), key=lambda v: v[0]))
+        opt["headers"].pop("forwarded", None)
+        opt["headers"].pop("x-vercel-proxy-signature", None)
+        opt["headers"].pop("x-vercel-proxy-signature-ts", None)
+        self.handle_request("application/json", dumps(opt))
         return
 
     def handle_one_request(self):
