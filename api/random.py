@@ -1,4 +1,5 @@
 from http.server import BaseHTTPRequestHandler
+import logging
 from urllib.parse import urlparse, parse_qs
 from time import time, gmtime, strftime
 from os import path, environ, listdir
@@ -157,158 +158,164 @@ class handler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
-        global maxNum, thumbnail
-        input_header = self.headers
-        userip = input_header.get("X-Real-IP")
-        if not with24hLimit:
-            maxNum = 0
-        if withSpeedLimit:
-            if limit(userip):
-                opt = report_error(
-                    "速率限制",
-                    "429 Too Many Requests",
-                    "您请求速度太快啦！",
-                    "发生什么了？",
-                    "您IP ["
-                    + userip
-                    + "] 在"
-                    + str(limitTime)
-                    + "秒内请求次数超过了"
-                    + str(limitFrequency)
-                    + "次，请稍后再试。",
+        try:
+            global maxNum, thumbnail
+            input_header = self.headers
+            userip = input_header.get("X-Real-IP")
+            if not with24hLimit:
+                maxNum = 0
+            if withSpeedLimit:
+                if limit(userip):
+                    opt = report_error(
+                        "速率限制",
+                        "429 Too Many Requests",
+                        "您请求速度太快啦！",
+                        "发生什么了？",
+                        "您IP ["
+                        + userip
+                        + "] 在"
+                        + str(limitTime)
+                        + "秒内请求次数超过了"
+                        + str(limitFrequency)
+                        + "次，请稍后再试。",
+                    )
+                    self.handle_request(429, "text/html;charset=utf-8", None, opt)
+                    return
+            url = "https://www.example.com" + self.path
+            input_data = parse_qs(urlparse(url).query)
+            only_check = input_data.get("only_check", [False])[0]
+            if only_check:
+                ip_block = check_ip(userip, 0)
+                if ip_block[0] > maxNum:
+                    opt = report_error(
+                        "检查额度",
+                        "200 OK",
+                        "您的请求已成功执行。",
+                        "执行结果：",
+                        "您IP ["
+                        + userip
+                        + "] 今日额度已用尽<br>距离恢复"
+                        + str(maxNum)
+                        + "可用额度还有："
+                        + ip_block[1],
+                    )
+                else:
+                    opt = report_error(
+                        "检查额度",
+                        "200 OK",
+                        "您的请求已成功执行。",
+                        "执行结果：",
+                        "您IP ["
+                        + userip
+                        + "] 今日额度剩余："
+                        + str(maxNum - ip_block[0])
+                        + "<br>计数周期开始于："
+                        + ip_block[1]
+                        + " UTC+0",
+                    )
+                self.handle_request(
+                    200, "text/html;charset=utf-8", (maxNum - ip_block[0]), opt
                 )
-                self.handle_request(429, "text/html;charset=utf-8", None, opt)
                 return
-        url = "https://www.example.com" + self.path
-        input_data = parse_qs(urlparse(url).query)
-        only_check = input_data.get("only_check", [False])[0]
-        if only_check:
-            ip_block = check_ip(userip, 0)
-            if ip_block[0] > maxNum:
+            setSort = input_data.get("sort", ["random"])[0]
+            if setSort == "random":
+                setSort = choice(sortList)
+            elif setSort not in sortList:
                 opt = report_error(
-                    "检查额度",
-                    "200 OK",
-                    "您的请求已成功执行。",
-                    "执行结果：",
-                    "您IP ["
-                    + userip
-                    + "] 今日额度已用尽<br>距离恢复"
-                    + str(maxNum)
-                    + "可用额度还有："
-                    + ip_block[1],
+                    "请求失败",
+                    "404 Not Found",
+                    "您请求的资源不存在。",
+                    "发生什么了？",
+                    "您提交的sort参数不合法",
+                )
+                self.handle_request(404, "text/html;charset=utf-8", None, opt)
+                return
+            setType = input_data.get("type", [None])[0]
+            setNum = input_data.get("num", ["1"])[0]
+            if setNum.isdigit():
+                setNum = int(setNum)
+            else:
+                setNum = 0
+            thumbnail = input_data.get("thumbnail", [False])[0]
+            if setNum == 1 and not setType == "json":
+                ip_block = check_ip(userip, 1)
+                if ip_block[0] > maxNum:
+                    opt = report_error(
+                        "访问受限",
+                        "403 Forbidden",
+                        "您无权使用。",
+                        "发生什么了？",
+                        "您IP ["
+                        + userip
+                        + "] 今日额度已用尽<br>距离恢复"
+                        + str(maxNum)
+                        + "可用额度还有："
+                        + ip_block[1],
+                    )
+                    self.handle_request(
+                        403, "text/html;charset=utf-8", (maxNum - ip_block[0]), opt
+                    )
+                    return
+                opt = read_data(setSort)
+            elif setNum > 100 or setNum < 1:
+                opt = report_error(
+                    "请求失败",
+                    "400 Bad Request",
+                    "我无法理解您的请求。",
+                    "发生什么了？",
+                    "您提交的num参数不合法",
+                )
+                self.handle_request(400, "text/html;charset=utf-8", None, opt)
+                return
+            else:
+                ip_block = check_ip(userip, setNum)
+                if ip_block[0] > maxNum + setNum:
+                    opt = report_error(
+                        "访问受限",
+                        "403 Forbidden",
+                        "您无权使用。",
+                        "发生什么了？",
+                        "您IP ["
+                        + userip
+                        + "] 今日额度已用尽<br>距离恢复"
+                        + str(maxNum)
+                        + "可用额度还有："
+                        + ip_block[1],
+                    )
+                    self.handle_request(
+                        403, "text/html;charset=utf-8", (maxNum - ip_block[0]), opt
+                    )
+                    return
+                elif ip_block[0] > maxNum and ip_block[0] <= maxNum + setNum:
+                    setNum = setNum + maxNum - ip_block[0]
+                pic = []
+                for i in range(setNum):
+                    pic.append(read_data(setSort))
+                if maxNum + ip_block[0] < 0:
+                    ip_block[0] = maxNum
+                opt = dumps({"pic": pic, "remain_num": maxNum - ip_block[0]})
+                setType = "json"
+            if setType == "text":
+                self.handle_request(
+                    200, "text/plain;charset=utf-8", (maxNum - ip_block[0]), opt
+                )
+            elif setType == "json":
+                self.handle_request(
+                    200, "application/json", (maxNum - ip_block[0]), opt
                 )
             else:
-                opt = report_error(
-                    "检查额度",
-                    "200 OK",
-                    "您的请求已成功执行。",
-                    "执行结果：",
-                    "您IP ["
-                    + userip
-                    + "] 今日额度剩余："
-                    + str(maxNum - ip_block[0])
-                    + "<br>计数周期开始于："
-                    + ip_block[1]
-                    + " UTC+0",
+                self.send_response(302)
+                self.send_header("Access-Control-Allow-Credentials", "true")
+                self.send_header(
+                    "Access-Control-Allow-Headers",
+                    "Content-Type,Content-Length,Accept-Encoding,X-Requested-with,Origin",
                 )
-            self.handle_request(
-                200, "text/html;charset=utf-8", (maxNum - ip_block[0]), opt
-            )
-            return
-        setSort = input_data.get("sort", ["random"])[0]
-        if setSort == "random":
-            setSort = choice(sortList)
-        elif setSort not in sortList:
-            opt = report_error(
-                "请求失败",
-                "404 Not Found",
-                "您请求的资源不存在。",
-                "发生什么了？",
-                "您提交的sort参数不合法",
-            )
-            self.handle_request(404, "text/html;charset=utf-8", None, opt)
-            return
-        setType = input_data.get("type", [None])[0]
-        setNum = input_data.get("num", ["1"])[0]
-        if setNum.isdigit():
-            setNum = int(setNum)
-        else:
-            setNum = 0
-        thumbnail = input_data.get("thumbnail", [False])[0]
-        if setNum == 1 and not setType == "json":
-            ip_block = check_ip(userip, 1)
-            if ip_block[0] > maxNum:
-                opt = report_error(
-                    "访问受限",
-                    "403 Forbidden",
-                    "您无权使用。",
-                    "发生什么了？",
-                    "您IP ["
-                    + userip
-                    + "] 今日额度已用尽<br>距离恢复"
-                    + str(maxNum)
-                    + "可用额度还有："
-                    + ip_block[1],
-                )
-                self.handle_request(
-                    403, "text/html;charset=utf-8", (maxNum - ip_block[0]), opt
-                )
-                return
-            opt = read_data(setSort)
-        elif setNum > 100 or setNum < 1:
-            opt = report_error(
-                "请求失败",
-                "400 Bad Request",
-                "我无法理解您的请求。",
-                "发生什么了？",
-                "您提交的num参数不合法",
-            )
-            self.handle_request(400, "text/html;charset=utf-8", None, opt)
-            return
-        else:
-            ip_block = check_ip(userip, setNum)
-            if ip_block[0] > maxNum + setNum:
-                opt = report_error(
-                    "访问受限",
-                    "403 Forbidden",
-                    "您无权使用。",
-                    "发生什么了？",
-                    "您IP ["
-                    + userip
-                    + "] 今日额度已用尽<br>距离恢复"
-                    + str(maxNum)
-                    + "可用额度还有："
-                    + ip_block[1],
-                )
-                self.handle_request(
-                    403, "text/html;charset=utf-8", (maxNum - ip_block[0]), opt
-                )
-                return
-            elif ip_block[0] > maxNum and ip_block[0] <= maxNum + setNum:
-                setNum = setNum + maxNum - ip_block[0]
-            pic = []
-            for i in range(setNum):
-                pic.append(read_data(setSort))
-            if maxNum + ip_block[0] < 0:
-                ip_block[0] = maxNum
-            opt = dumps({"pic": pic, "remain_num": maxNum - ip_block[0]})
-            setType = "json"
-        if setType == "text":
-            self.handle_request(
-                200, "text/plain;charset=utf-8", (maxNum - ip_block[0]), opt
-            )
-        elif setType == "json":
-            self.handle_request(200, "application/json", (maxNum - ip_block[0]), opt)
-        else:
-            self.send_response(302)
-            self.send_header("Access-Control-Allow-Credentials", "true")
-            self.send_header(
-                "Access-Control-Allow-Headers",
-                "Content-Type,Content-Length,Accept-Encoding,X-Requested-with,Origin",
-            )
-            self.send_header("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Location", opt)
-            self.send_header("X-Remain-Num", (maxNum - ip_block[0]))
-            self.end_headers()
+                self.send_header("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Location", opt)
+                self.send_header("X-Remain-Num", (maxNum - ip_block[0]))
+                self.end_headers()
+        except Exception as e:
+            logging.error(f"An error occurred: {e}", exc_info=True)
+            self.send_error(500, "Internal Server Error")
         return
